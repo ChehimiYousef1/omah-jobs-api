@@ -1,0 +1,323 @@
+================================================================
+  OMAH CONNECT — COMPLETE API REFERENCE
+  Base URL : http://localhost:3001
+  Docs UI  : http://localhost:3001/api/docs
+  JSON Spec: http://localhost:3001/api/docs.json
+  Version  : 1.0.0
+================================================================
+
+AUTHENTICATION
+  All protected endpoints require the HTTP-only cookie:
+    Cookie: auth_token=<JWT>
+  Obtain it via login, register, or OAuth endpoints below.
+
+================================================================
+  TAG: HEALTH
+================================================================
+
+POST   /api/test
+  Summary : Smoke-test — confirms server is running
+  Auth    : None
+  Body    : None
+  Returns : { success: true }
+
+================================================================
+  TAG: AUTH
+================================================================
+
+POST   /api/auth/register/freelancer
+  Summary : Register a new freelancer account
+  Auth    : None
+  Body    : { name, email, password, headline? }
+  Returns : 201 AuthUserResponse | 400 | 409
+
+POST   /api/auth/register/company
+  Summary : Register a new company account
+  Auth    : None
+  Body    : { name, email, password, headline? }
+  Returns : 201 AuthUserResponse | 400 | 409
+
+POST   /api/auth/login
+  Summary : Log in with email & password
+  Auth    : None
+  Body    : { email, password }
+  Returns : 200 AuthUserResponse | 400 | 401
+
+POST   /api/auth/logout
+  Summary : Log out — clears auth_token cookie
+  Auth    : Required
+  Body    : None
+  Returns : 200 { success: true }
+
+GET    /api/auth/me
+  Summary : Get currently authenticated user profile
+  Auth    : Required
+  Returns : 200 MeResponse | 401 | 404
+
+POST   /api/auth/forgot-password
+  Summary : Request password-reset email (15-min token)
+  Auth    : None
+  Body    : { email }
+  Returns : 200 MessageResponse (always, prevents enumeration) | 400
+
+POST   /api/auth/reset-password
+  Summary : Reset password using token from email
+  Auth    : None
+  Body    : { token, password }
+  Returns : 200 MessageResponse | 400 (invalid/expired) | 400 (short password)
+
+POST   /api/auth/update-avatar
+  Summary : Upload and update current user avatar
+  Auth    : Required
+  Body    : multipart/form-data  { avatar: <file> }
+  Returns : 200 AuthUserResponse | 400 | 401 | 404
+
+POST   /api/auth/update-cover
+  Summary : Upload and update current user cover photo
+  Auth    : Required
+  Body    : multipart/form-data  { cover: <file> }
+  Returns : 200 CoverUpdateResponse | 400 | 401 | 404
+
+GET    /api/auth/microsoft
+  Summary : Initiate Microsoft OAuth flow
+  Auth    : None
+  Returns : 302 → Microsoft login page
+
+GET    /api/auth/microsoft/callback
+  Summary : Microsoft OAuth callback (called by Microsoft)
+  Auth    : None
+  Params  : ?code=&state=&error=
+  Returns : 302 → /social/feed (success) | 302 → /login?error=<reason>
+  Errors  : invalid_state | missing_code | token_exchange_failed |
+            email_missing | authentication_failed
+
+GET    /api/auth/github
+  Summary : Initiate GitHub OAuth flow
+  Auth    : None
+  Returns : 302 → GitHub login page
+
+GET    /api/auth/github/callback
+  Summary : GitHub OAuth callback (called by GitHub)
+  Auth    : None
+  Params  : ?code=&state=&error=
+  Returns : 302 → /social/feed (success) | 302 → /login?error=<reason>
+  Errors  : access_denied | missing_code | invalid_state |
+            token_exchange_failed | user_fetch_failed |
+            email_missing | authentication_failed
+
+================================================================
+  TAG: POSTS
+================================================================
+
+GET    /api/posts
+  Summary : Get posts feed (guests + authenticated)
+  Auth    : Optional (liked/reposted flags require auth)
+  Returns : 200 { posts: FeedPost[] }
+  Notes   : "Only Me" posts hidden from guests and other users
+
+POST   /api/posts
+  Summary : Create a new post
+  Auth    : Required
+  Body    : multipart/form-data
+            { title, description, visibility, postType,
+              file?, eventName?, eventDate?, eventTime?,
+              eventLocation?, eventUrl? }
+  Limits  : file max 200 MB
+  Types   : postType = text | image | video | document | event
+  Visibility: Anyone | Connections | Only Me
+  Returns : 201 { post: FeedPost } | 401
+
+DELETE /api/posts/:id
+  Summary : Delete a post (owner only)
+  Auth    : Required
+  Params  : id = post UUID
+  Returns : 200 { success: true } | 401 | 403 | 404
+
+PUT    /api/posts/:id
+  Summary : Update a post (owner only)
+  Auth    : Required
+  Params  : id = post UUID
+  Body    : multipart/form-data
+            { title?, description?, visibility?, postType?, file? }
+  Notes   : Omitted fields keep existing values
+  Returns : 200 { success: true, post: Post } | 401 | 403 | 404
+
+================================================================
+  TAG: COMMENTS
+================================================================
+
+GET    /api/posts/:postId/comments
+  Summary : Get all comments for a post (nested tree)
+  Auth    : None
+  Params  : postId = post UUID
+  Returns : 200 { comments: CommentNode[] }
+  Notes   : Replies nested under parent via replies[]
+
+POST   /api/posts/:postId/comments
+  Summary : Add a comment or reply to a post
+  Auth    : Required
+  Params  : postId = post UUID
+  Body    : { body, parent_id? }
+  Returns : 201 { comment: CommentNode } | 400 | 401
+
+DELETE /api/posts/:postId/comments/:commentId
+  Summary : Delete a comment (author only)
+  Auth    : Required
+  Params  : postId = post UUID, commentId = comment UUID
+  Returns : 200 { success: true } | 401 | 403
+
+GET    /api/posts/:postId/comments/mentions-search
+  Summary : Search users for @mention autocomplete (max 8)
+  Auth    : Required
+  Params  : postId = post UUID
+  Query   : ?q=<partial name>
+  Returns : 200 { users: MentionUser[] }
+
+================================================================
+  TAG: INTERACTIONS
+================================================================
+
+GET    /api/post-interactions/posts/:id/stats
+  Summary : Get like, comment, repost counts for a post
+  Auth    : None
+  Params  : id = post UUID
+  Returns : 200 PostStats { likeCount, commentCount, repostCount }
+
+POST   /api/post-interactions/posts/:id/like
+  Summary : Like a post (idempotent)
+  Auth    : Required
+  Params  : id = post UUID
+  Returns : 200 { success: true } | 401
+  Notes   : Fires LIKE notification to post owner (async)
+
+DELETE /api/post-interactions/posts/:id/like
+  Summary : Unlike a post
+  Auth    : Required
+  Params  : id = post UUID
+  Returns : 200 { success: true } | 401
+
+POST   /api/post-interactions/posts/:id/repost
+  Summary : Repost a post
+  Auth    : Required
+  Params  : id = post UUID
+  Returns : 201 { success: true } | 401 | 404 | 409 (already reposted)
+  Notes   : Fires REPOST notification to post owner (async)
+
+DELETE /api/post-interactions/posts/:id/repost
+  Summary : Undo a repost
+  Auth    : Required
+  Params  : id = post UUID
+  Returns : 200 { success: true } | 401
+
+POST   /api/post-interactions/saved-posts
+  Summary : Save / bookmark a post (idempotent)
+  Auth    : Required
+  Body    : { post_id }
+  Returns : 200 { success: true } | 401
+
+DELETE /api/post-interactions/saved-posts/:postId
+  Summary : Unsave a post
+  Auth    : Required
+  Params  : postId = post UUID
+  Returns : 200 { success: true } | 401
+
+POST   /api/post-interactions/posts/:id/report
+  Summary : Report a post
+  Auth    : Required
+  Params  : id = post UUID
+  Body    : { reason? }  (defaults to "Reported by user")
+  Returns : 200 { success: true } | 401
+
+================================================================
+  TAG: CONNECTIONS
+================================================================
+
+GET    /api/connections
+  Summary : Get current user's accepted connections
+  Auth    : Required
+  Returns : 200 { connections: ConnectionUser[] }
+  Notes   : Bidirectional — returns connections regardless of who sent request
+
+POST   /api/post-interactions/followers
+  Summary : Follow a user (idempotent)
+  Auth    : Required
+  Body    : { following_id }
+  Returns : 200 { success: true } | 401
+  Notes   : Fires FOLLOW notification to followed user (async)
+
+DELETE /api/post-interactions/followers/:userId
+  Summary : Unfollow a user
+  Auth    : Required
+  Params  : userId = target user UUID
+  Returns : 200 { success: true } | 401
+
+POST   /api/post-interactions/blocked-users
+  Summary : Block a user (idempotent, no notification sent)
+  Auth    : Required
+  Body    : { blocked_id }
+  Returns : 200 { success: true } | 401
+
+DELETE /api/post-interactions/blocked-users/:userId
+  Summary : Unblock a user
+  Auth    : Required
+  Params  : userId = target user UUID
+  Returns : 200 { success: true } | 401
+
+================================================================
+  TAG: MESSAGES
+================================================================
+
+POST   /api/messages
+  Summary : Send a message or share a post
+  Auth    : Required
+  Body    : { recipient_id, post_id?, type?, content? }
+  Types   : type = post_share (default) | text
+  Returns : 201 { success: true } | 400 | 401
+  Notes   : Sender is resolved from JWT — cannot be spoofed
+
+================================================================
+  RESPONSE SCHEMAS
+================================================================
+
+AuthUserResponse   { success, user: { id, email, name, role, avatar, coverPage, headline, bio } }
+MeResponse         { success, user: { id, email, name, role, avatar, coverPage } }
+CoverUpdateResponse{ success, user: { id, email, name, role, avatar, coverPage } }
+FeedPost           { id, userId, title, description, attachments, postType, visibility,
+                     created_at, author_name, author_headline, author_role,
+                     author_avatar, author_bio, likeCount, commentCount,
+                     repostCount, liked, reposted }
+Post               { id, userId, title, description, attachments, visibility,
+                     postType, created_at, updated_at }
+CommentNode        { id, body, parent_id, created_at, author_id, author_name,
+                     author_avatar, author_headline, replies: CommentNode[] }
+PostStats          { likeCount, commentCount, repostCount }
+ConnectionUser     { id, name, avatar, headline }
+MentionUser        { id, name, avatar, headline }
+Message            { id, sender_id, recipient_id, post_id, type, content, created_at }
+SuccessResponse    { success: true }
+MessageResponse    { success: true, message: string }
+ErrorResponse      { success: false, error: string }
+
+================================================================
+  HTTP STATUS CODES USED
+================================================================
+
+200  OK
+201  Created
+302  Redirect (OAuth flows)
+400  Bad Request       (validation / missing fields)
+401  Unauthorized      (missing or invalid auth_token)
+403  Forbidden         (authenticated but not the resource owner)
+404  Not Found
+409  Conflict          (duplicate — e.g. already reposted)
+500  Internal Server Error
+
+================================================================
+  CONTACT
+================================================================
+
+  Primary : Youssef@openmindsaihamburg.com
+  Secondary: chehimi030@gmail.com
+  Docs UI  : http://localhost:3001/api/docs
+
+================================================================
