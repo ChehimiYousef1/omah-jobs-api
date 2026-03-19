@@ -1,23 +1,29 @@
-// ─── MUST be first ────────────────────────────────────────────────────────────
+// ─── Bootstrap (must be first) ────────────────────────────────────────────────
 import { fileURLToPath } from 'url';
-import path from 'path';
-import dotenv from 'dotenv';
+import path              from 'path';
+import dotenv            from 'dotenv';
+import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-// ✅ server.ts is at server/src/server.ts → ../ = server/ → .env is at server/.env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-// ─── All other imports ────────────────────────────────────────────────────────
-import express from 'express';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import sql from 'mssql';
-import swaggerJSDoc from 'swagger-jsdoc';
-import swaggerUi from 'swagger-ui-express';
-import swaggerDefinition from '../utils/swaggerOption.js';
+// ─── Migration imports (CJS modules that export async functions) ──────────────
+const require      = createRequire(import.meta.url);
+const runMigration = require(path.resolve(__dirname, '../migration/runmigration.js'))   as () => Promise<void>;
+const migration016 = require(path.resolve(__dirname, '../migration/migration-016.js'))  as () => Promise<void>;
 
+// ─── Imports ──────────────────────────────────────────────────────────────────
+import express, { Request, Response, NextFunction } from 'express';
+import cors          from 'cors';
+import cookieParser  from 'cookie-parser';
+import morgan        from 'morgan';
+import sql           from 'mssql';
+import swaggerJSDoc  from 'swagger-jsdoc';
+import swaggerUi     from 'swagger-ui-express';
+
+import swaggerDefinition      from '../utils/swaggerOption.js';
 import authRoutes             from '../routes/microsoft-auth.js';
 import githubAuthRoutes       from '../routes/github-auth.js';
 import postInteractions       from '../routes/postInteractions.routes.js';
@@ -28,31 +34,31 @@ import commentsRoutes         from '../routes/comments.routes.js';
 import forgotPasswordRoutes   from '../routes/forget-pass.routes.js';
 import authRoutesRegistration from '../routes/auth.routes.js';
 
-const app  = express();
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
+// ─── Constants ────────────────────────────────────────────────────────────────
+const PORT          = Number(process.env.PORT) || 3001;
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const NODE_ENV      = process.env.NODE_ENV      || 'development';
+const IS_PROD       = NODE_ENV === 'production';
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+const app = express();
 
 // ─── Core Middleware ──────────────────────────────────────────────────────────
-app.use(cors({
-  origin:      process.env.CLIENT_ORIGIN || 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
 app.use(cookieParser());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan(IS_PROD ? 'combined' : 'dev'));
 
 // ─── Static Files ─────────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 app.use('/images',  express.static(path.join(__dirname, '..', 'images')));
 
 // ─── Swagger ──────────────────────────────────────────────────────────────────
-const swaggerOptions: swaggerJSDoc.Options = {
+const swaggerSpec = swaggerJSDoc({
   swaggerDefinition,
-  apis: [
-    path.join(__dirname, 'server.ts'),
-    path.join(__dirname, '../routes/*.ts'),
-    path.join(__dirname, '../routes/*.js'),
-  ],
-};
-const swaggerSpec = swaggerJSDoc(swaggerOptions);
+  apis: [path.join(__dirname, '../routes/*.js')],
+} satisfies swaggerJSDoc.Options);
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: 'OMAH Jobs — API Docs',
@@ -64,11 +70,19 @@ app.get('/api/docs.json', (_req, res) => {
   res.send(swaggerSpec);
 });
 
-// ─── Root route ───────────────────────────────────────────────────────────────
-// ✅ Fixes 404 on / for Render deployment
-app.get('/', (_req, res) => {
-  res.redirect('/api/docs');
+// ─── Health Check ─────────────────────────────────────────────────────────────
+app.get('/health', async (_req, res) => {
+  try {
+    const p = await getPool();
+    await p.request().query('SELECT 1');
+    res.json({ status: 'ok', db: 'connected', env: NODE_ENV });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'disconnected' });
+  }
 });
+
+// ─── Root → Docs redirect ─────────────────────────────────────────────────────
+app.get('/', (_req, res) => res.redirect('/api/docs'));
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 const dbConfig: sql.config = {
@@ -82,8 +96,14 @@ const dbConfig: sql.config = {
 };
 
 let pool: sql.ConnectionPool | null = null;
+
 export const getPool = async (): Promise<sql.ConnectionPool> => {
-  if (!pool || !pool.connected) pool = await sql.connect(dbConfig);
+  if (pool && pool.connected) return pool;
+  pool = await new sql.ConnectionPool(dbConfig).connect();
+  pool.on('error', (err) => {
+    console.error('❌ DB pool error:', err);
+    pool = null;
+  });
   return pool;
 };
 
@@ -98,17 +118,60 @@ app.use('/api/posts/:postId/comments', commentsRoutes);
 app.use('/api/connections',            connectionsRoutes);
 app.use('/api/messages',               messagesRoutes);
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
-getPool()
-  .then(() => {
-    console.log('✅ DB connected');
-    app.listen(PORT, () => {
-      console.log(`🚀 Server    → http://localhost:${PORT}`);
-      console.log(`📖 API Docs  → http://localhost:${PORT}/api/docs`);
-      console.log(`📄 JSON Spec → http://localhost:${PORT}/api/docs.json`);
-    });
-  })
-  .catch((err) => {
-    console.error('❌ Failed to connect to DB:', err);
-    process.exit(1);
+// ─── 404 Handler ──────────────────────────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found.' });
+});
+
+// ─── Global Error Handler ─────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    message: IS_PROD ? 'Internal server error.' : err.message,
+    ...(IS_PROD ? {} : { stack: err.stack }),
   });
+});
+
+// ─── Graceful Shutdown ────────────────────────────────────────────────────────
+const shutdown = async (signal: string) => {
+  console.log(`\n⚠️  ${signal} received — shutting down gracefully…`);
+  if (pool) { await pool.close(); console.log('🔌 DB pool closed.'); }
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('unhandledRejection', (reason) => console.error('❌ Unhandled rejection:', reason));
+process.on('uncaughtException',  (err)    => { console.error('❌ Uncaught exception:', err); process.exit(1); });
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+const bootstrap = async () => {
+  try {
+    // 1. Run base migrations first (creates all core tables including users)
+    await runMigration();
+
+    // 2. Run migration-016 second (depends on users + Posts tables existing)
+    await migration016();
+
+    console.log('✅ Migrations complete');
+
+    // 3. Open the server's own persistent pool
+    await getPool();
+    console.log('✅ DB connected');
+
+    // 4. Start listening
+    app.listen(PORT, () => {
+      console.log(`\n🚀 Server   → http://localhost:${PORT}`);
+      console.log(`📖 API Docs → http://localhost:${PORT}/api/docs`);
+      console.log(`❤️  Health   → http://localhost:${PORT}/health`);
+      console.log(`🌍 Env      → ${NODE_ENV}\n`);
+    });
+  } catch (err) {
+    console.error('❌ Bootstrap failed:', err);
+    process.exit(1);
+  }
+};
+
+bootstrap();
