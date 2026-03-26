@@ -177,7 +177,7 @@ router.get('/microsoft', (req, res) => {
  *               example: "auth_token=eyJ...; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800"
  */
 router.get('/microsoft/callback', async (req, res) => {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://www.omahconnect.com/';
   try {
     const { code, state, error } = req.query as Record<string, string>;
 
