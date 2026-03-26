@@ -35,16 +35,33 @@ import forgotPasswordRoutes   from '../routes/forget-pass.routes.js';
 import authRoutesRegistration from '../routes/auth.routes.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PORT          = Number(process.env.PORT) || 3001;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
-const NODE_ENV      = process.env.NODE_ENV      || 'development';
-const IS_PROD       = NODE_ENV === 'production';
+const PORT     = Number(process.env.PORT) || 3001;
+const NODE_ENV = process.env.NODE_ENV     || 'development';
+const IS_PROD  = NODE_ENV === 'production';
+
+// ─── Allowed CORS origins ─────────────────────────────────────────────────────
+// Add any additional origins here (staging, preview, etc.)
+const ALLOWED_ORIGINS: string[] = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://omahconnect.com',
+  'https://www.omahconnect.com',
+  ...(process.env.CLIENT_ORIGIN ? [process.env.CLIENT_ORIGIN] : []),
+];
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const app = express();
 
 // ─── Core Middleware ──────────────────────────────────────────────────────────
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin '${origin}' not allowed`));
+  },
+  credentials: true,   // Required for cookies to be sent cross-origin
+}));
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -107,6 +124,16 @@ export const getPool = async (): Promise<sql.ConnectionPool> => {
   return pool;
 };
 
+// ─── Cookie helper ────────────────────────────────────────────────────────────
+// Use this in every route that sets auth_token (microsoft-auth, github-auth, auth.routes)
+// Example: res.cookie('auth_token', token, cookieOptions());
+export const cookieOptions = (): express.CookieOptions => ({
+  httpOnly: true,
+  secure:   IS_PROD,                      // true on HTTPS (production)
+  sameSite: IS_PROD ? 'none' : 'lax',    // 'none' required for cross-site HTTPS cookies
+  maxAge:   7 * 24 * 60 * 60 * 1000,     // 7 days
+});
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth',                   authRoutes);
 app.use('/api/auth',                   githubAuthRoutes);
@@ -166,7 +193,8 @@ const bootstrap = async () => {
       console.log(`\n🚀 Server   → http://localhost:${PORT}`);
       console.log(`📖 API Docs → http://localhost:${PORT}/api/docs`);
       console.log(`❤️  Health   → http://localhost:${PORT}/health`);
-      console.log(`🌍 Env      → ${NODE_ENV}\n`);
+      console.log(`🌍 Env      → ${NODE_ENV}`);
+      console.log(`🔐 CORS     → ${ALLOWED_ORIGINS.join(', ')}\n`);
     });
   } catch (err) {
     console.error('❌ Bootstrap failed:', err);
