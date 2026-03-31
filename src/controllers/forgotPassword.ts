@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
-import { sql, poolPromise } from "../config/db"; // Make sure these are exported in db.ts
-import { sendResetEmail } from "../utils/mail";  // Use your existing sendResetEmail function
+import { sql, poolPromise } from "../config/db.js"; // Make sure these are exported in db.ts
+import { sendResetEmail } from "../utils/mail.js";  // Use your existing sendResetEmail function
 
 export const forgotPassword = async (req: Request, res: Response) => {
   const { email } = req.body;

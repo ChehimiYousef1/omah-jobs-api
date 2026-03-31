@@ -724,4 +724,4 @@ async function runMigrations() {
 }
 
 // Execute migrations
-runMigrations();
+export default runMigrations;

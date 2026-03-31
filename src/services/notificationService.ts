@@ -1,8 +1,8 @@
 // src/services/notificationService.ts
 
 import sql from 'mssql';
-import { getPool } from '../config/db';
-import { sendNotificationEmail, NotifType } from '../utils/emailService';
+import { getPool } from '../config/db.js';
+import { sendNotificationEmail, NotifType } from '../utils/emailService.js';
 
 interface CreateNotifOptions {
   recipientId:  string;

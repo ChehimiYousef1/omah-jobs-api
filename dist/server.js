@@ -99,7 +99,7 @@ const dbConfig = {
     database: process.env.DB_NAME,
     port: Number(process.env.DB_PORT) || 1433,
     options: { encrypt: true, trustServerCertificate: true, enableArithAbort: true },
-    pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
+    pool: { max: 10, min: 0, idleTimeoutMillis: 30_000 },
 };
 let pool = null;
 export const getPool = async () => {

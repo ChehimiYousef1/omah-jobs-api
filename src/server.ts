@@ -1,46 +1,51 @@
 // ─── Bootstrap (must be first) ────────────────────────────────────────────────
 import { fileURLToPath } from 'url';
-import path              from 'path';
-import dotenv            from 'dotenv';
+import path from 'path';
+import dotenv from 'dotenv';
 import { createRequire } from 'module';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // ─── Migration imports (CJS modules that export async functions) ──────────────
-const require      = createRequire(import.meta.url);
-const runMigration = require(path.resolve(__dirname, '../migration/runmigration.js'))   as () => Promise<void>;
-const migration016 = require(path.resolve(__dirname, '../migration/migration-016.js'))  as () => Promise<void>;
+const runMigration = async () => {
+  const mod = await import('./migration/runmigration.js'); // note: .js for tsx compilation
+  await mod.default?.();
+};
+
+const migration016 = async () => {
+  const mod = await import('./migration/migration-016.js'); // note: .js
+  await mod.default?.();
+};
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 import express, { Request, Response, NextFunction } from 'express';
-import cors          from 'cors';
-import cookieParser  from 'cookie-parser';
-import morgan        from 'morgan';
-import sql           from 'mssql';
-import swaggerJSDoc  from 'swagger-jsdoc';
-import swaggerUi     from 'swagger-ui-express';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import morgan from 'morgan';
+import sql from 'mssql';
+import swaggerJSDoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
 
-import swaggerDefinition      from './utils/swaggerOption';
-import authRoutes             from './routes/microsoft-auth';
-import githubAuthRoutes       from './routes/github-auth';
-import postInteractions       from './routes/postInteractions.routes';
-import postsRoutes            from './routes/posts.routes';
-import connectionsRoutes      from './routes/connections.routes';
-import messagesRoutes         from './routes/messages.routes';
-import commentsRoutes         from './routes/comments.routes';
-import forgotPasswordRoutes   from './routes/forget-pass.routes';
-import authRoutesRegistration from './routes/auth.routes';
-
+// Local imports: add .js for compiled ES modules
+import swaggerOptions from './utils/swaggerOption.js';
+import authRoutes from './routes/microsoft-auth.js';
+import githubAuthRoutes from './routes/github-auth.js';
+import postInteractions from './routes/postInteractions.routes.js';
+import postsRoutes from './routes/posts.routes.js';
+import connectionsRoutes from './routes/connections.routes.js';
+import messagesRoutes from './routes/messages.routes.js';
+import commentsRoutes from './routes/comments.routes.js';
+import forgotPasswordRoutes from './routes/forget-pass.routes.js';
+import authRoutesRegistration from './routes/auth.routes.js';
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PORT     = Number(process.env.PORT) || 3001;
-const NODE_ENV = process.env.NODE_ENV     || 'development';
-const IS_PROD  = NODE_ENV === 'production';
+const PORT = Number(process.env.PORT) || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PROD = NODE_ENV === 'production';
 
 // ─── Allowed CORS origins ─────────────────────────────────────────────────────
-// Add any additional origins here (staging, preview, etc.)
 const ALLOWED_ORIGINS: string[] = [
   'http://localhost:5173',
   'http://localhost:3000',
@@ -55,12 +60,11 @@ const app = express();
 // ─── Core Middleware ──────────────────────────────────────────────────────────
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(new Error(`CORS: origin '${origin}' not allowed`));
   },
-  credentials: true,   // Required for cookies to be sent cross-origin
+  credentials: true,
 }));
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
@@ -69,11 +73,11 @@ app.use(morgan(IS_PROD ? 'combined' : 'dev'));
 
 // ─── Static Files ─────────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-app.use('/images',  express.static(path.join(__dirname, '..', 'images')));
+app.use('/images', express.static(path.join(__dirname, '..', 'images')));
 
 // ─── Swagger ──────────────────────────────────────────────────────────────────
 const swaggerSpec = swaggerJSDoc({
-  swaggerDefinition,
+  swaggerDefinition: swaggerOptions,
   apis: [path.join(__dirname, '../routes/*.js')],
 } satisfies swaggerJSDoc.Options);
 
@@ -103,13 +107,13 @@ app.get('/', (_req, res) => res.redirect('/api/docs'));
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 const dbConfig: sql.config = {
-  user:     process.env.DB_USER!,
+  user: process.env.DB_USER!,
   password: process.env.DB_PASSWORD!,
-  server:   process.env.DB_HOST!,
+  server: process.env.DB_HOST!,
   database: process.env.DB_NAME!,
-  port:     Number(process.env.DB_PORT) || 1433,
-  options:  { encrypt: true, trustServerCertificate: true, enableArithAbort: true },
-  pool:     { max: 10, min: 0, idleTimeoutMillis: 30_000 },
+  port: Number(process.env.DB_PORT) || 1433,
+  options: { encrypt: true, trustServerCertificate: true, enableArithAbort: true },
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30_000 },
 };
 
 let pool: sql.ConnectionPool | null = null;
@@ -125,25 +129,23 @@ export const getPool = async (): Promise<sql.ConnectionPool> => {
 };
 
 // ─── Cookie helper ────────────────────────────────────────────────────────────
-// Use this in every route that sets auth_token (microsoft-auth, github-auth, auth.routes)
-// Example: res.cookie('auth_token', token, cookieOptions());
 export const cookieOptions = (): express.CookieOptions => ({
   httpOnly: true,
-  secure:   IS_PROD,                      // true on HTTPS (production)
-  sameSite: IS_PROD ? 'none' : 'lax',    // 'none' required for cross-site HTTPS cookies
-  maxAge:   7 * 24 * 60 * 60 * 1000,     // 7 days
+  secure: IS_PROD,
+  sameSite: IS_PROD ? 'none' : 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth',                   authRoutes);
-app.use('/api/auth',                   githubAuthRoutes);
-app.use('/api/auth',                   forgotPasswordRoutes);
-app.use('/api/auth',                   authRoutesRegistration);
-app.use('/api/posts',                  postsRoutes);
-app.use('/api/post-interactions',      postInteractions);
+app.use('/api/auth', authRoutes);
+app.use('/api/auth', githubAuthRoutes);
+app.use('/api/auth', forgotPasswordRoutes);
+app.use('/api/auth', authRoutesRegistration);
+app.use('/api/posts', postsRoutes);
+app.use('/api/post-interactions', postInteractions);
 app.use('/api/posts/:postId/comments', commentsRoutes);
-app.use('/api/connections',            connectionsRoutes);
-app.use('/api/messages',               messagesRoutes);
+app.use('/api/connections', connectionsRoutes);
+app.use('/api/messages', messagesRoutes);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -151,7 +153,6 @@ app.use((_req, res) => {
 });
 
 // ─── Global Error Handler ─────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('❌ Unhandled error:', err);
   res.status(500).json({
@@ -169,26 +170,20 @@ const shutdown = async (signal: string) => {
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('unhandledRejection', (reason) => console.error('❌ Unhandled rejection:', reason));
-process.on('uncaughtException',  (err)    => { console.error('❌ Uncaught exception:', err); process.exit(1); });
+process.on('uncaughtException', (err) => { console.error('❌ Uncaught exception:', err); process.exit(1); });
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 const bootstrap = async () => {
   try {
-    // 1. Run base migrations first (creates all core tables including users)
     await runMigration();
-
-    // 2. Run migration-016 second (depends on users + Posts tables existing)
     await migration016();
 
     console.log('✅ Migrations complete');
-
-    // 3. Open the server's own persistent pool
     await getPool();
     console.log('✅ DB connected');
 
-    // 4. Start listening
     app.listen(PORT, () => {
       console.log(`\n🚀 Server   → http://localhost:${PORT}`);
       console.log(`📖 API Docs → http://localhost:${PORT}/api/docs`);

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import sql from 'mssql';
 import { sendResetEmail } from '../utils/mail.js';
-import { getPool } from '../config/db'; // or wherever your pool helper is
+import { getPool } from '../config/db.js'; // or wherever your pool helper is
 export async function forgotPassword(req, res) {
     try {
         const { email } = req.body;

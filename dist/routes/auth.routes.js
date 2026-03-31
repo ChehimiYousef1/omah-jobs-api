@@ -1,32 +1,24 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import sql from 'mssql';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { getPool } from '../routes/microsoft-auth.js';
-
 const router = Router();
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const signAndSetCookie = (res: Response, user: any) => {
-  const token = jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
-    process.env.JWT_SECRET!,
-    { expiresIn: '7d' }
-  );
-  res.cookie('auth_token', token, {
-    httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge:   7 * 24 * 60 * 60 * 1000,
-    path:     '/',
-  });
-  return token;
+const signAndSetCookie = (res, user) => {
+    const token = jwt.sign({ userId: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        path: '/',
+    });
+    return token;
 };
-
 // =============================================================================
 // POST /api/auth/login
 // =============================================================================
-
 /**
  * @swagger
  * /api/auth/login:
@@ -89,58 +81,49 @@ const signAndSetCookie = (res: Response, user: any) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password)
-      return res.status(400).json({ success: false, error: 'Email and password are required' });
-
-    const db     = await getPool();
-    const result = await db.request()
-      .input('email', sql.NVarChar(255), email.trim().toLowerCase())
-      .query(`
+router.post('/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (!email || !password)
+            return res.status(400).json({ success: false, error: 'Email and password are required' });
+        const db = await getPool();
+        const result = await db.request()
+            .input('email', sql.NVarChar(255), email.trim().toLowerCase())
+            .query(`
         SELECT id, email, name, role, avatar, coverPage, headline, bio, password
         FROM users
         WHERE email = @email
       `);
-
-    const user = result.recordset[0];
-
-    // ✅ Generic message — never reveal if email exists
-    if (!user || !user.password)
-      return res.status(401).json({ success: false, error: 'Invalid email or password' });
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid)
-      return res.status(401).json({ success: false, error: 'Invalid email or password' });
-
-    signAndSetCookie(res, user);
-
-    return res.json({
-      success: true,
-      user: {
-        id:        user.id,
-        email:     user.email,
-        name:      user.name,
-        role:      user.role,
-        avatar:    user.avatar    ?? null,
-        coverPage: user.coverPage ?? null,
-        headline:  user.headline  ?? null,
-        bio:       user.bio       ?? null,
-      },
-    });
-
-  } catch (err: unknown) {
-    console.error('[login] Error:', err);
-    return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
-  }
+        const user = result.recordset[0];
+        // ✅ Generic message — never reveal if email exists
+        if (!user || !user.password)
+            return res.status(401).json({ success: false, error: 'Invalid email or password' });
+        const valid = await bcrypt.compare(password, user.password);
+        if (!valid)
+            return res.status(401).json({ success: false, error: 'Invalid email or password' });
+        signAndSetCookie(res, user);
+        return res.json({
+            success: true,
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                avatar: user.avatar ?? null,
+                coverPage: user.coverPage ?? null,
+                headline: user.headline ?? null,
+                bio: user.bio ?? null,
+            },
+        });
+    }
+    catch (err) {
+        console.error('[login] Error:', err);
+        return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
+    }
 });
-
 // =============================================================================
 // POST /api/auth/register/freelancer
 // =============================================================================
-
 /**
  * @swagger
  * /api/auth/register/freelancer:
@@ -213,56 +196,45 @@ router.post('/login', async (req: Request, res: Response) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/register/freelancer', async (req: Request, res: Response) => {
-  try {
-    const { name, email, password, headline } = req.body;
-
-    if (!name || !email || !password)
-      return res.status(400).json({ success: false, error: 'Name, email and password are required' });
-
-    if (password.length < 8)
-      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
-
-    const db = await getPool();
-
-    // ✅ Check duplicate email
-    const existing = await db.request()
-      .input('email', sql.NVarChar(255), email.trim().toLowerCase())
-      .query(`SELECT id FROM users WHERE email = @email`);
-
-    if (existing.recordset.length > 0)
-      return res.status(409).json({ success: false, error: 'An account with this email already exists' });
-
-    const hashed = await bcrypt.hash(password, 12);
-
-    const result = await db.request()
-      .input('email',    sql.NVarChar(255), email.trim().toLowerCase())
-      .input('password', sql.NVarChar(255), hashed)
-      .input('name',     sql.NVarChar(255), name.trim())
-      .input('role',     sql.NVarChar(20),  'FREELANCER')
-      .input('headline', sql.NVarChar(255), headline?.trim() ?? null)
-      .query(`
+router.post('/register/freelancer', async (req, res) => {
+    try {
+        const { name, email, password, headline } = req.body;
+        if (!name || !email || !password)
+            return res.status(400).json({ success: false, error: 'Name, email and password are required' });
+        if (password.length < 8)
+            return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+        const db = await getPool();
+        // ✅ Check duplicate email
+        const existing = await db.request()
+            .input('email', sql.NVarChar(255), email.trim().toLowerCase())
+            .query(`SELECT id FROM users WHERE email = @email`);
+        if (existing.recordset.length > 0)
+            return res.status(409).json({ success: false, error: 'An account with this email already exists' });
+        const hashed = await bcrypt.hash(password, 12);
+        const result = await db.request()
+            .input('email', sql.NVarChar(255), email.trim().toLowerCase())
+            .input('password', sql.NVarChar(255), hashed)
+            .input('name', sql.NVarChar(255), name.trim())
+            .input('role', sql.NVarChar(20), 'FREELANCER')
+            .input('headline', sql.NVarChar(255), headline?.trim() ?? null)
+            .query(`
         INSERT INTO users (id, email, password, name, role, headline, created_at, updated_at)
         OUTPUT INSERTED.id, INSERTED.email, INSERTED.name, INSERTED.role,
                INSERTED.avatar, INSERTED.coverPage, INSERTED.headline, INSERTED.bio
         VALUES (NEWID(), @email, @password, @name, @role, @headline, SYSDATETIME(), SYSDATETIME())
       `);
-
-    const user = result.recordset[0];
-    signAndSetCookie(res, user);
-
-    return res.status(201).json({ success: true, user });
-
-  } catch (err: unknown) {
-    console.error('[register/freelancer] Error:', err);
-    return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
-  }
+        const user = result.recordset[0];
+        signAndSetCookie(res, user);
+        return res.status(201).json({ success: true, user });
+    }
+    catch (err) {
+        console.error('[register/freelancer] Error:', err);
+        return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
+    }
 });
-
 // =============================================================================
 // POST /api/auth/register/company
 // =============================================================================
-
 /**
  * @swagger
  * /api/auth/register/company:
@@ -335,50 +307,40 @@ router.post('/register/freelancer', async (req: Request, res: Response) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/register/company', async (req: Request, res: Response) => {
-  try {
-    const { name, email, password, headline } = req.body;
-
-    if (!name || !email || !password)
-      return res.status(400).json({ success: false, error: 'Company name, email and password are required' });
-
-    if (password.length < 8)
-      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
-
-    const db = await getPool();
-
-    // ✅ Check duplicate email
-    const existing = await db.request()
-      .input('email', sql.NVarChar(255), email.trim().toLowerCase())
-      .query(`SELECT id FROM users WHERE email = @email`);
-
-    if (existing.recordset.length > 0)
-      return res.status(409).json({ success: false, error: 'An account with this email already exists' });
-
-    const hashed = await bcrypt.hash(password, 12);
-
-    const result = await db.request()
-      .input('email',    sql.NVarChar(255), email.trim().toLowerCase())
-      .input('password', sql.NVarChar(255), hashed)
-      .input('name',     sql.NVarChar(255), name.trim())
-      .input('role',     sql.NVarChar(20),  'COMPANY')
-      .input('headline', sql.NVarChar(255), headline?.trim() ?? null)
-      .query(`
+router.post('/register/company', async (req, res) => {
+    try {
+        const { name, email, password, headline } = req.body;
+        if (!name || !email || !password)
+            return res.status(400).json({ success: false, error: 'Company name, email and password are required' });
+        if (password.length < 8)
+            return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+        const db = await getPool();
+        // ✅ Check duplicate email
+        const existing = await db.request()
+            .input('email', sql.NVarChar(255), email.trim().toLowerCase())
+            .query(`SELECT id FROM users WHERE email = @email`);
+        if (existing.recordset.length > 0)
+            return res.status(409).json({ success: false, error: 'An account with this email already exists' });
+        const hashed = await bcrypt.hash(password, 12);
+        const result = await db.request()
+            .input('email', sql.NVarChar(255), email.trim().toLowerCase())
+            .input('password', sql.NVarChar(255), hashed)
+            .input('name', sql.NVarChar(255), name.trim())
+            .input('role', sql.NVarChar(20), 'COMPANY')
+            .input('headline', sql.NVarChar(255), headline?.trim() ?? null)
+            .query(`
         INSERT INTO users (id, email, password, name, role, headline, created_at, updated_at)
         OUTPUT INSERTED.id, INSERTED.email, INSERTED.name, INSERTED.role,
                INSERTED.avatar, INSERTED.coverPage, INSERTED.headline, INSERTED.bio
         VALUES (NEWID(), @email, @password, @name, @role, @headline, SYSDATETIME(), SYSDATETIME())
       `);
-
-    const user = result.recordset[0];
-    signAndSetCookie(res, user);
-
-    return res.status(201).json({ success: true, user });
-
-  } catch (err: unknown) {
-    console.error('[register/company] Error:', err);
-    return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
-  }
+        const user = result.recordset[0];
+        signAndSetCookie(res, user);
+        return res.status(201).json({ success: true, user });
+    }
+    catch (err) {
+        console.error('[register/company] Error:', err);
+        return res.status(500).json({ success: false, error: 'An unexpected error occurred.' });
+    }
 });
-
 export default router;

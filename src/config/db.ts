@@ -1,10 +1,16 @@
 import sql from 'mssql';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
+// ─── Fix for ES Modules ───────────────────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-// Database configuration
+// ─── Database configuration ───────────────────────────
 const config: sql.config = {
   user: process.env.DB_USER || 'omah_jobs',
   password: process.env.DB_PASSWORD || 'Youssef2002@!!',
@@ -22,15 +28,12 @@ const config: sql.config = {
   },
 };
 
-// Connection pool variable
 let pool: sql.ConnectionPool | null = null;
 
-// Exported poolPromise for controllers
 export const poolPromise: Promise<sql.ConnectionPool> = (async () => {
   if (!pool) {
     pool = await sql.connect(config);
 
-    // Handle pool errors
     pool.on('error', (err) => {
       console.error('❌ Database pool error:', err);
       pool = null;
@@ -41,14 +44,10 @@ export const poolPromise: Promise<sql.ConnectionPool> = (async () => {
   return pool;
 })();
 
-export const getPool = async (): Promise<sql.ConnectionPool> => {
-  return poolPromise;
-};
+export const getPool = async (): Promise<sql.ConnectionPool> => poolPromise;
 
-// Export sql for type-safe queries
 export { sql };
 
-// Optional: close pool manually
 export const closePool = async (): Promise<void> => {
   if (pool) {
     await pool.close();
