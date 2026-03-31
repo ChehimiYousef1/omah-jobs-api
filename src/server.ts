@@ -23,16 +23,16 @@ import sql           from 'mssql';
 import swaggerJSDoc  from 'swagger-jsdoc';
 import swaggerUi     from 'swagger-ui-express';
 
-import swaggerDefinition      from '../utils/swaggerOption.js';
-import authRoutes             from '../routes/microsoft-auth.js';
-import githubAuthRoutes       from '../routes/github-auth.js';
-import postInteractions       from '../routes/postInteractions.routes.js';
-import postsRoutes            from '../routes/posts.routes.js';
-import connectionsRoutes      from '../routes/connections.routes.js';
-import messagesRoutes         from '../routes/messages.routes.js';
-import commentsRoutes         from '../routes/comments.routes.js';
-import forgotPasswordRoutes   from '../routes/forget-pass.routes.js';
-import authRoutesRegistration from '../routes/auth.routes.js';
+import swaggerDefinition      from './utils/swaggerOption';
+import authRoutes             from './routes/microsoft-auth';
+import githubAuthRoutes       from './routes/github-auth';
+import postInteractions       from './routes/postInteractions.routes';
+import postsRoutes            from './routes/posts.routes';
+import connectionsRoutes      from './routes/connections.routes';
+import messagesRoutes         from './routes/messages.routes';
+import commentsRoutes         from './routes/comments.routes';
+import forgotPasswordRoutes   from './routes/forget-pass.routes';
+import authRoutesRegistration from './routes/auth.routes';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PORT     = Number(process.env.PORT) || 3001;

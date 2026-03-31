@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import sql from "mssql";
-import { getPool } from "../config/db.js";
+import { getPool } from "../config/db";
 
 export const authenticate = async (req: any, res: Response, next: NextFunction) => {
   try {
